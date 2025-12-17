@@ -2,7 +2,14 @@ export enum MediaType {
   IMAGE = 'IMAGE',
   VIDEO = 'VIDEO',
   AUDIO = 'AUDIO',
-  AVATAR = 'AVATAR'
+  AVATAR = 'AVATAR',
+  CHAT = 'CHAT'
+}
+
+export interface Folder {
+  id: string;
+  name: string;
+  color?: string;
 }
 
 export interface Asset {
@@ -12,11 +19,14 @@ export interface Asset {
   thumbnail?: string;
   name: string;
   createdAt: number;
+  folderId?: string;
+  tags?: string[];
   metadata?: {
     prompt?: string;
     width?: number;
     height?: number;
     duration?: number;
+    analysis?: string;
   };
 }
 
@@ -34,11 +44,15 @@ export interface GenerationConfig {
   prompt: string;
   negativePrompt?: string;
   aspectRatio: string;
-  resolution: '720p' | '1080p' | '1K' | '2K' | '4K'; // Combined for Image/Video logic
-  durationSeconds?: number; // For video
+  resolution: '720p' | '1080p';
+  imageSize?: '1K' | '2K' | '4K';
+  durationSeconds?: number;
   model: string;
   stylePreset?: string;
   seed?: number;
+  useThinking?: boolean;
+  useSearch?: boolean;
+  useMaps?: boolean;
 }
 
 export interface User {
@@ -62,10 +76,10 @@ export interface Comment {
 }
 
 export interface AppState {
-  activeTool: 'generate' | 'edit' | 'avatar' | 'team';
+  activeTool: 'generate' | 'edit' | 'avatar' | 'team' | 'chat';
   selectedMediaType: MediaType;
   generatedAssets: Asset[];
   timeline: TimelineItem[];
   isGenerating: boolean;
-  generationProgress: string; // Message to show
+  generationProgress: string;
 }

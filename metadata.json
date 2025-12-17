@@ -1,5 +1,8 @@
 {
   "name": "Aether Creative Studio",
   "description": "A production-grade AI creative suite for generating images, videos, and avatars using Google Gemini and Veo models.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [
+    "microphone",
+    "camera"
+  ]
 }

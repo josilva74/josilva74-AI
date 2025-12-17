@@ -1,12 +1,6 @@
-import { GoogleGenAI, Modality } from "@google/genai";
+import { GoogleGenAI, Modality, LiveServerMessage } from "@google/genai";
 import { MODELS } from "../constants";
 
-// Removed conflicting global declaration of Window interface.
-// We assume 'aistudio' is available on the global Window object as per the environment.
-
-/**
- * Ensures a valid API key is selected via the AI Studio overlay for Veo/Paid models.
- */
 async function ensureApiKey(): Promise<string> {
   const apiKey = process.env.API_KEY;
   if (apiKey) return apiKey;
@@ -17,35 +11,27 @@ async function ensureApiKey(): Promise<string> {
     if (!hasKey) {
       await win.aistudio.openSelectKey();
     }
-    // We assume the environment variable or internal state is updated after selection
-    // In a real env, we might need to reload or re-fetch, but for this demo logic:
     return process.env.API_KEY || ''; 
   }
   return '';
 }
 
-/**
- * Creates a new client instance. 
- * Essential to call this immediately before requests to capture any newly selected keys.
- */
 const getClient = async () => {
   await ensureApiKey(); 
   return new GoogleGenAI({ apiKey: process.env.API_KEY });
 };
 
-export const generateImage = async (prompt: string, aspectRatio: string, style: string) => {
+export const generateImage = async (prompt: string, aspectRatio: string, style: string, size: string = '1K') => {
   const ai = await getClient();
   const fullPrompt = style ? `${prompt}, style: ${style}` : prompt;
 
   const response = await ai.models.generateContent({
-    model: MODELS.IMAGE,
-    contents: {
-      parts: [{ text: fullPrompt }],
-    },
+    model: MODELS.IMAGE_PRO,
+    contents: { parts: [{ text: fullPrompt }] },
     config: {
       imageConfig: {
-        aspectRatio: aspectRatio as any, // 16:9, etc.
-        imageSize: "1K", // Defaulting to 1K for speed/stability in demo
+        aspectRatio: aspectRatio as any,
+        imageSize: size as any,
       },
     },
   });
@@ -61,165 +47,234 @@ export const generateImage = async (prompt: string, aspectRatio: string, style: 
   throw new Error("No image data found in response");
 };
 
+export const editImage = async (base64Image: string, prompt: string) => {
+  const ai = await getClient();
+  const [mimeType, data] = base64Image.split(',');
+  const actualMimeType = mimeType.match(/:(.*?);/)?.[1] || 'image/png';
+
+  const response = await ai.models.generateContent({
+    model: MODELS.IMAGE_EDIT,
+    contents: {
+      parts: [
+        { inlineData: { data: data || base64Image, mimeType: actualMimeType } },
+        { text: prompt }
+      ]
+    }
+  });
+
+  const parts = response.candidates?.[0]?.content?.parts;
+  if (!parts) throw new Error("No edit result");
+
+  for (const part of parts) {
+    if (part.inlineData) {
+      return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+    }
+  }
+  return null;
+};
+
 export const generateVideo = async (
   prompt: string, 
   aspectRatio: string, 
   resolution: string = '720p',
-  onProgress: (msg: string) => void
+  durationSeconds?: number,
+  negativePrompt?: string,
+  sourceImage?: string,
+  onProgress?: (msg: string) => void
 ) => {
-  // Ensure Key Selection for Veo
-  const win = window as any;
-  if (win.aistudio) {
-    const hasKey = await win.aistudio.hasSelectedApiKey();
-    if (!hasKey) {
-      onProgress("Waiting for API Key selection...");
-      await win.aistudio.openSelectKey();
-    }
+  const ai = await getClient();
+  onProgress?.("Initializing video generation...");
+  
+  const videoConfig: any = {
+    numberOfVideos: 1,
+    resolution: resolution,
+    aspectRatio: aspectRatio as any,
+  };
+
+  if (durationSeconds) videoConfig.durationSeconds = durationSeconds;
+  if (negativePrompt) videoConfig.negativePrompt = negativePrompt;
+
+  const request: any = {
+    model: MODELS.VIDEO_FAST,
+    prompt: prompt,
+    config: videoConfig
+  };
+
+  if (sourceImage) {
+    const [mimeType, data] = sourceImage.split(',');
+    request.image = {
+      imageBytes: data || sourceImage,
+      mimeType: mimeType.match(/:(.*?);/)?.[1] || 'image/png'
+    };
   }
 
-  const ai = await getClient(); // Re-init with key
-  
-  onProgress("Initializing video generation...");
-  
-  // Use fast preview for demo purposes, unless user specifically asks for high quality (mapped in UI)
-  const model = MODELS.VIDEO_FAST;
-
-  let operation = await ai.models.generateVideos({
-    model: model,
-    prompt: prompt,
-    config: {
-      numberOfVideos: 1,
-      resolution: resolution as any,
-      aspectRatio: aspectRatio as any,
-    }
-  });
-
-  onProgress("Rendering video... this may take a moment.");
+  let operation = await ai.models.generateVideos(request);
+  onProgress?.("Rendering video...");
 
   while (!operation.done) {
-    await new Promise(resolve => setTimeout(resolve, 5000)); // Poll every 5s
-    onProgress("Still rendering...");
+    await new Promise(resolve => setTimeout(resolve, 5000));
+    onProgress?.("Still rendering...");
     operation = await ai.operations.getVideosOperation({ operation: operation });
   }
 
   const videoUri = operation.response?.generatedVideos?.[0]?.video?.uri;
-  if (!videoUri) throw new Error("Video generation failed or returned no URI");
+  if (!videoUri) throw new Error("Video generation failed");
 
-  // Fetch the actual bytes to create a local blob URL or return the authenticated URI
-  // The documentation says we must append the key.
-  const authenticatedUrl = `${videoUri}&key=${process.env.API_KEY}`;
-  
-  return authenticatedUrl;
+  return `${videoUri}&key=${process.env.API_KEY}`;
 };
 
-// Helper to convert base64 PCM to WAV Blob URL
-const pcmBase64ToWavUrl = (base64: string, sampleRate: number): string => {
-  const binaryString = window.atob(base64);
+// Fix: Implemented chatWithThinking following Gemini 3 pro guidelines
+export const chatWithThinking = async (prompt: string) => {
+  const ai = await getClient();
+  const response = await ai.models.generateContent({
+    model: MODELS.PRO,
+    contents: prompt,
+    config: {
+      thinkingConfig: { thinkingBudget: 32768 }
+    }
+  });
+  return response.text || '';
+};
+
+export const chatWithGrounding = async (message: string, type: 'search' | 'maps' = 'search') => {
+  const ai = await getClient();
+  // Fix: Maps grounding is only supported in Gemini 2.5 series models.
+  const model = type === 'search' ? MODELS.FLASH : 'gemini-2.5-flash';
+  const tools = type === 'search' ? [{ googleSearch: {} }] : [{ googleMaps: {} }];
+  
+  const response = await ai.models.generateContent({
+    model: model,
+    contents: message,
+    config: { tools: tools as any }
+  });
+  
+  const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+  const urls = chunks.map((chunk: any) => {
+    if (chunk.web) return { url: chunk.web.uri, title: chunk.web.title };
+    if (chunk.maps) return { url: chunk.maps.uri, title: chunk.maps.title };
+    return null;
+  }).filter(Boolean);
+
+  return { text: response.text || '', urls };
+};
+
+// Live API PCM helpers
+export function encode(bytes: Uint8Array) {
+  let binary = '';
+  const len = bytes.byteLength;
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+export function decode(base64: string) {
+  const binaryString = atob(base64);
   const len = binaryString.length;
   const bytes = new Uint8Array(len);
   for (let i = 0; i < len; i++) {
     bytes[i] = binaryString.charCodeAt(i);
   }
-
-  // PCM data (16-bit, mono)
-  // WAV Header construction
-  const numChannels = 1;
-  const bitsPerSample = 16;
-  const byteRate = (sampleRate * numChannels * bitsPerSample) / 8;
-  const blockAlign = (numChannels * bitsPerSample) / 8;
-  const dataSize = bytes.length;
-  const chunkSize = 36 + dataSize;
-  
-  const buffer = new ArrayBuffer(44 + dataSize);
-  const view = new DataView(buffer);
-  
-  // RIFF
-  view.setUint8(0, 'R'.charCodeAt(0));
-  view.setUint8(1, 'I'.charCodeAt(0));
-  view.setUint8(2, 'F'.charCodeAt(0));
-  view.setUint8(3, 'F'.charCodeAt(0));
-  view.setUint32(4, chunkSize, true);
-  view.setUint8(8, 'W'.charCodeAt(0));
-  view.setUint8(9, 'A'.charCodeAt(0));
-  view.setUint8(10, 'V'.charCodeAt(0));
-  view.setUint8(11, 'E'.charCodeAt(0));
-  
-  // fmt
-  view.setUint8(12, 'f'.charCodeAt(0));
-  view.setUint8(13, 'm'.charCodeAt(0));
-  view.setUint8(14, 't'.charCodeAt(0));
-  view.setUint8(15, ' '.charCodeAt(0));
-  view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true); // PCM
-  view.setUint16(22, numChannels, true);
-  view.setUint32(24, sampleRate, true);
-  view.setUint32(28, byteRate, true);
-  view.setUint16(32, blockAlign, true);
-  view.setUint16(34, bitsPerSample, true);
-  
-  // data
-  view.setUint8(36, 'd'.charCodeAt(0));
-  view.setUint8(37, 'a'.charCodeAt(0));
-  view.setUint8(38, 't'.charCodeAt(0));
-  view.setUint8(39, 'a'.charCodeAt(0));
-  view.setUint32(40, dataSize, true);
-  
-  // payload
-  const payload = new Uint8Array(buffer, 44);
-  payload.set(bytes);
-  
-  const blob = new Blob([buffer], { type: 'audio/wav' });
-  return URL.createObjectURL(blob);
+  return bytes;
 }
+
+// Fix: Use any cast for AudioBuffer/Context to avoid missing global types
+export async function decodeAudioData(
+  data: Uint8Array,
+  ctx: any,
+  sampleRate: number,
+  numChannels: number,
+): Promise<any> {
+  const dataInt16 = new Int16Array(data.buffer);
+  const frameCount = dataInt16.length / numChannels;
+  const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
+
+  for (let channel = 0; channel < numChannels; channel++) {
+    const channelData = buffer.getChannelData(channel);
+    for (let i = 0; i < frameCount; i++) {
+      channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
+    }
+  }
+  return buffer;
+}
+
+export const connectLiveSession = async (callbacks: any) => {
+  const ai = await getClient();
+  return ai.live.connect({
+    model: 'gemini-2.5-flash-native-audio-preview-09-2025',
+    callbacks,
+    config: {
+      responseModalities: [Modality.AUDIO],
+      speechConfig: {
+        voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } },
+      },
+      systemInstruction: 'You are an advanced creative assistant for Aether Studio. Help users with image, video, and design ideas via real-time conversation.',
+    },
+  });
+};
 
 export const generateSpeech = async (text: string, voiceName: string) => {
   const ai = await getClient();
-
   const response = await ai.models.generateContent({
     model: MODELS.TTS,
     contents: [{ parts: [{ text }] }],
     config: {
       responseModalities: [Modality.AUDIO],
-      speechConfig: {
-        voiceConfig: {
-          prebuiltVoiceConfig: { voiceName },
-        },
-      },
+      speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName } } },
     },
   });
-
   const audioData = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
   if (!audioData) throw new Error("No audio data generated");
 
-  // Convert raw PCM (24kHz default for Gemini TTS) to WAV Blob URL
-  return pcmBase64ToWavUrl(audioData, 24000);
+  const binary = decode(audioData);
+  // Fix: use window prefix for AudioContext
+  const AudioContextClass = (window as any).AudioContext || (window as any).webkitAudioContext;
+  const ctx = new AudioContextClass({ sampleRate: 24000 });
+  const audioBuffer = await decodeAudioData(binary, ctx, 24000, 1);
+  
+  // Convert AudioBuffer to WAV Blob
+  const OfflineContextClass = (window as any).OfflineAudioContext || (window as any).webkitOfflineAudioContext;
+  const offlineCtx = new OfflineContextClass(1, audioBuffer.length, audioBuffer.sampleRate);
+  const source = offlineCtx.createBufferSource();
+  source.buffer = audioBuffer;
+  source.connect(offlineCtx.destination);
+  source.start();
+  const renderedBuffer = await offlineCtx.startRendering();
+  
+  return URL.createObjectURL(bufferToWav(renderedBuffer));
 };
 
-// Helper to decode base64 audio string to AudioBuffer (to be used in frontend)
-export const decodeAudio = async (base64Data: string, audioContext: AudioContext): Promise<AudioBuffer> => {
-  const binaryString = window.atob(base64Data);
-  const len = binaryString.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
+function bufferToWav(abuffer: any) {
+  let numOfChan = abuffer.numberOfChannels,
+    btwLength = abuffer.length * numOfChan * 2 + 44,
+    btwBuffer = new ArrayBuffer(btwLength),
+    btwView = new DataView(btwBuffer),
+    btwChannels = [],
+    btwI, btwSample,
+    btwOffset = 0,
+    btwPos = 0;
+
+  function setUint16(data: any) {
+    btwView.setUint16(btwPos, data, true);
+    btwPos += 2;
   }
-  
-  // The API returns raw PCM (no header). 
-  // We need to decode strictly as PCM if using raw data, but the `decodeAudioData` usually expects headers.
-  // The Gemini TTS documentation implies we receive PCM.
-  // We need to construct a float32 buffer manually.
-  
-  const dataInt16 = new Int16Array(bytes.buffer);
-  const sampleRate = 24000; 
-  const numChannels = 1;
-  const frameCount = dataInt16.length / numChannels;
-  
-  const buffer = audioContext.createBuffer(numChannels, frameCount, sampleRate);
-  const channelData = buffer.getChannelData(0);
-  
-  for (let i = 0; i < frameCount; i++) {
-    channelData[i] = dataInt16[i] / 32768.0;
+  function setUint32(data: any) {
+    btwView.setUint32(btwPos, data, true);
+    btwPos += 4;
   }
-  
-  return buffer;
+
+  setUint32(0x46464952); setUint32(btwLength - 8); setUint32(0x45564157); setUint32(0x20746d66); setUint32(16); setUint16(1); setUint16(numOfChan); setUint32(abuffer.sampleRate); setUint32(abuffer.sampleRate * 2 * numOfChan); setUint16(numOfChan * 2); setUint16(16); setUint32(0x61746164); setUint32(btwLength - btwPos - 4);
+
+  for (btwI = 0; btwI < abuffer.numberOfChannels; btwI++) btwChannels.push(abuffer.getChannelData(btwI));
+
+  while (btwPos < btwLength) {
+    for (btwI = 0; btwI < numOfChan; btwI++) {
+      btwSample = Math.max(-1, Math.min(1, btwChannels[btwI][btwOffset]));
+      btwSample = (btwSample < 0 ? btwSample * 0x8000 : btwSample * 0x7FFF);
+      btwView.setInt16(btwPos, btwSample, true);
+      btwPos += 2;
+    }
+    btwOffset++;
+  }
+  return new Blob([btwBuffer], { type: "audio/wav" });
 }

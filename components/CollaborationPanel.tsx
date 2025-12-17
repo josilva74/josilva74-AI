@@ -76,14 +76,16 @@ const CollaborationPanel: React.FC<CollaborationPanelProps> = ({
           <input 
             type="email" 
             value={inviteEmail}
-            onChange={(e) => setInviteEmail(e.target.value)}
+            // Fix: Cast target to any for value property access
+            onChange={(e) => setInviteEmail((e.target as any).value)}
             placeholder="Invite by email..." 
             className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500"
           />
           <div className="flex gap-2">
             <select 
               value={inviteRole}
-              onChange={(e) => setInviteRole(e.target.value as any)}
+              // Fix: Cast target to any for value property access
+              onChange={(e) => setInviteRole((e.target as any).value as any)}
               className="flex-1 bg-slate-900 border border-slate-700 rounded p-1.5 text-xs text-slate-300 focus:outline-none"
             >
               <option value="editor">Editor</option>
@@ -139,7 +141,8 @@ const CollaborationPanel: React.FC<CollaborationPanelProps> = ({
             <input 
               type="text" 
               value={newComment}
-              onChange={(e) => setNewComment(e.target.value)}
+              // Fix: Cast target to any for value property access
+              onChange={(e) => setNewComment((e.target as any).value)}
               placeholder="Add a comment..." 
               className="w-full bg-slate-900 border border-slate-700 rounded-full py-2 pl-4 pr-10 text-xs text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
