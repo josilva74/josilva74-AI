@@ -42,3 +42,11 @@ export const VOICE_PRESETS = [
   { label: 'Fenrir (Male)', value: 'Fenrir' },
   { label: 'Zephyr (Female)', value: 'Zephyr' },
 ];
+
+export const SAMPLER_OPTIONS = [
+  { label: 'Euler a', value: 'euler_a' },
+  { label: 'DPM++ 2M Karras', value: 'dpm_2m_karras' },
+  { label: 'DPM++ SDE Karras', value: 'dpm_sde_karras' },
+  { label: 'DDIM', value: 'ddim' },
+  { label: 'LMS', value: 'lms' },
+];

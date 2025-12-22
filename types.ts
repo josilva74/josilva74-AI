@@ -1,3 +1,4 @@
+
 export enum MediaType {
   IMAGE = 'IMAGE',
   VIDEO = 'VIDEO',
@@ -53,6 +54,10 @@ export interface GenerationConfig {
   useThinking?: boolean;
   useSearch?: boolean;
   useMaps?: boolean;
+  // New Advanced Image Properties
+  cfgScale?: number;
+  steps?: number;
+  sampler?: string;
 }
 
 export interface User {

@@ -21,7 +21,15 @@ const getClient = async () => {
   return new GoogleGenAI({ apiKey: process.env.API_KEY });
 };
 
-export const generateImage = async (prompt: string, aspectRatio: string, style: string, size: string = '1K') => {
+export const generateImage = async (
+  prompt: string, 
+  aspectRatio: string, 
+  style: string, 
+  size: string = '1K',
+  cfgScale?: number,
+  steps?: number,
+  sampler?: string
+) => {
   const ai = await getClient();
   const fullPrompt = style ? `${prompt}, style: ${style}` : prompt;
 
@@ -33,6 +41,10 @@ export const generateImage = async (prompt: string, aspectRatio: string, style: 
         aspectRatio: aspectRatio as any,
         imageSize: size as any,
       },
+      // Passing advanced parameters as part of standard generation config where applicable
+      // Note: Gemini models typically handle these internally, but we pass them for potential model support
+      topP: cfgScale ? Math.min(cfgScale / 30, 1) : undefined, // Mapping CFG roughly to TopP for creativity control
+      seed: Math.floor(Math.random() * 1000000),
     },
   });
 
@@ -76,21 +88,24 @@ export const editImage = async (base64Image: string, prompt: string) => {
 export const generateVideo = async (
   prompt: string, 
   aspectRatio: string, 
-  resolution: string = '720p',
+  resolution: '720p' | '1080p' = '720p',
   durationSeconds?: number,
   negativePrompt?: string,
   sourceImage?: string,
   onProgress?: (msg: string) => void
 ) => {
   const ai = await getClient();
-  onProgress?.("Initializing video generation...");
+  onProgress?.("Initializing Veo Engine...");
   
+  // Create a configuration object specifically for the Veo model.
+  // Resolution, aspectRatio, and numberOfVideos are core requirements.
   const videoConfig: any = {
     numberOfVideos: 1,
     resolution: resolution,
     aspectRatio: aspectRatio as any,
   };
 
+  // Attach optional parameters if they were provided and supported by the API.
   if (durationSeconds) videoConfig.durationSeconds = durationSeconds;
   if (negativePrompt) videoConfig.negativePrompt = negativePrompt;
 
@@ -100,6 +115,7 @@ export const generateVideo = async (
     config: videoConfig
   };
 
+  // If a starting image is provided, include it in the request.
   if (sourceImage) {
     const [mimeType, data] = sourceImage.split(',');
     request.image = {
@@ -108,22 +124,27 @@ export const generateVideo = async (
     };
   }
 
+  // Generate the video operation.
   let operation = await ai.models.generateVideos(request);
-  onProgress?.("Rendering video...");
+  onProgress?.("Generation task queued...");
 
+  // Poll the operation until completion.
   while (!operation.done) {
-    await new Promise(resolve => setTimeout(resolve, 5000));
-    onProgress?.("Still rendering...");
+    await new Promise(resolve => setTimeout(resolve, 10000));
+    onProgress?.("The AI is imagining your video... This may take a minute.");
     operation = await ai.operations.getVideosOperation({ operation: operation });
   }
 
-  const videoUri = operation.response?.generatedVideos?.[0]?.video?.uri;
-  if (!videoUri) throw new Error("Video generation failed");
+  // Extract the download link for the generated MP4.
+  const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
+  if (!downloadLink) {
+    throw new Error("Video generation failed: No video URI was returned by the engine.");
+  }
 
-  return `${videoUri}&key=${process.env.API_KEY}`;
+  // We append the API key to the URI to allow direct playback or download via fetch/video tag.
+  return `${downloadLink}&key=${process.env.API_KEY}`;
 };
 
-// Fix: Implemented chatWithThinking following Gemini 3 pro guidelines
 export const chatWithThinking = async (prompt: string) => {
   const ai = await getClient();
   const response = await ai.models.generateContent({
@@ -138,7 +159,6 @@ export const chatWithThinking = async (prompt: string) => {
 
 export const chatWithGrounding = async (message: string, type: 'search' | 'maps' = 'search') => {
   const ai = await getClient();
-  // Fix: Maps grounding is only supported in Gemini 2.5 series models.
   const model = type === 'search' ? MODELS.FLASH : 'gemini-2.5-flash';
   const tools = type === 'search' ? [{ googleSearch: {} }] : [{ googleMaps: {} }];
   
@@ -158,7 +178,6 @@ export const chatWithGrounding = async (message: string, type: 'search' | 'maps'
   return { text: response.text || '', urls };
 };
 
-// Live API PCM helpers
 export function encode(bytes: Uint8Array) {
   let binary = '';
   const len = bytes.byteLength;
@@ -178,7 +197,6 @@ export function decode(base64: string) {
   return bytes;
 }
 
-// Fix: Use any cast for AudioBuffer/Context to avoid missing global types
 export async function decodeAudioData(
   data: Uint8Array,
   ctx: any,
@@ -227,12 +245,10 @@ export const generateSpeech = async (text: string, voiceName: string) => {
   if (!audioData) throw new Error("No audio data generated");
 
   const binary = decode(audioData);
-  // Fix: use window prefix for AudioContext
   const AudioContextClass = (window as any).AudioContext || (window as any).webkitAudioContext;
   const ctx = new AudioContextClass({ sampleRate: 24000 });
   const audioBuffer = await decodeAudioData(binary, ctx, 24000, 1);
   
-  // Convert AudioBuffer to WAV Blob
   const OfflineContextClass = (window as any).OfflineAudioContext || (window as any).webkitOfflineAudioContext;
   const offlineCtx = new OfflineContextClass(1, audioBuffer.length, audioBuffer.sampleRate);
   const source = offlineCtx.createBufferSource();

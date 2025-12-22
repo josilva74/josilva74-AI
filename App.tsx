@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Sidebar from './components/Sidebar';
 import Timeline from './components/Timeline';
@@ -35,9 +36,14 @@ const App: React.FC = () => {
   const [isVoiceActive, setIsVoiceActive] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   
-  // Layout State
-  const [sidebarWidth, setSidebarWidth] = useState(260);
-  const [controlPanelWidth, setControlPanelWidth] = useState(320);
+  // Layout Visibility State
+  const [showSidebar, setShowSidebar] = useState(true);
+  const [showControlPanel, setShowControlPanel] = useState(true);
+  const [showTimeline, setShowTimeline] = useState(true);
+
+  // Layout Width/Height State
+  const [sidebarWidth, setSidebarWidth] = useState(280);
+  const [controlPanelWidth, setControlPanelWidth] = useState(340);
   const [timelineHeight, setTimelineHeight] = useState(256);
   const [isResizing, setIsResizing] = useState<'sidebar' | 'control' | 'timeline' | null>(null);
 
@@ -124,10 +130,38 @@ const App: React.FC = () => {
     input.click();
   };
 
-  const handleStudioAction = (type: 'IMAGE' | 'VIDEO' | 'AUDIO') => {
+  const handleStudioAction = (type: string) => {
+    if (type === 'LIVE_VOICE') {
+      setIsVoiceActive(true);
+      return;
+    }
     setActiveTool('generate');
     setActiveMediaType(type as any);
     setActiveAsset(null); 
+    setShowControlPanel(true);
+  };
+
+  const handleAssetAction = (action: 'PROPERTIES' | 'RENAME' | 'DELETE') => {
+    if (!activeAsset) {
+      (window as any).alert('No asset selected.');
+      return;
+    }
+    
+    if (action === 'PROPERTIES') {
+      setShowControlPanel(true);
+      setActiveTool('generate');
+    } else if (action === 'RENAME') {
+      const newName = (window as any).prompt('Rename asset:', activeAsset.name);
+      if (newName) handleUpdateAsset(activeAsset.id, { name: newName });
+    } else if (action === 'DELETE') {
+      handleDeleteAsset(activeAsset.id);
+    }
+  };
+
+  const handleViewToggle = (panel: 'SIDEBAR' | 'CONTROL' | 'TIMELINE') => {
+    if (panel === 'SIDEBAR') setShowSidebar(!showSidebar);
+    if (panel === 'CONTROL') setShowControlPanel(!showControlPanel);
+    if (panel === 'TIMELINE') setShowTimeline(!showTimeline);
   };
 
   // Resize Handlers
@@ -135,13 +169,13 @@ const App: React.FC = () => {
     if (!isResizing) return;
     
     if (isResizing === 'sidebar') {
-      const newWidth = Math.max(200, Math.min(450, e.clientX));
+      const newWidth = Math.max(200, Math.min(500, e.clientX));
       setSidebarWidth(newWidth);
     } else if (isResizing === 'control') {
-      const newWidth = Math.max(250, Math.min(500, (window as any).innerWidth - e.clientX));
+      const newWidth = Math.max(250, Math.min(600, (window as any).innerWidth - e.clientX));
       setControlPanelWidth(newWidth);
     } else if (isResizing === 'timeline') {
-      const newHeight = Math.max(150, Math.min(500, (window as any).innerHeight - e.clientY));
+      const newHeight = Math.max(150, Math.min(600, (window as any).innerHeight - e.clientY));
       setTimelineHeight(newHeight);
     }
   }, [isResizing]);
@@ -226,7 +260,15 @@ const App: React.FC = () => {
           resultUrl = (await editImage(sourceImage, config.prompt)) || '';
         } else {
           setGenerationProgress("Synthesizing Pro Image...");
-          resultUrl = await generateImage(config.prompt, config.aspectRatio, config.stylePreset || '', config.imageSize);
+          resultUrl = await generateImage(
+            config.prompt, 
+            config.aspectRatio, 
+            config.stylePreset || '', 
+            config.imageSize,
+            config.cfgScale,
+            config.steps,
+            config.sampler
+          );
         }
       } 
       else if (activeMediaType === MediaType.VIDEO) {
@@ -297,35 +339,40 @@ const App: React.FC = () => {
         onImport={handleImportMedia}
         onExport={handleExportProject}
         onStudioAction={handleStudioAction}
+        onAssetAction={handleAssetAction}
+        onViewToggle={handleViewToggle}
         onOpenHelp={() => setShowHelp(true)}
+        panels={{ sidebar: showSidebar, control: showControlPanel, timeline: showTimeline }}
       />
 
       {isVoiceActive && <LiveVoiceSession onClose={() => setIsVoiceActive(false)} />}
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
       
       <div className="flex-1 flex overflow-hidden">
-        <div style={{ width: `${sidebarWidth}px` }} className="flex-shrink-0 flex">
-          <Sidebar 
-            activeTool={activeTool} 
-            onToolChange={setActiveTool} 
-            assets={assets} 
-            folders={folders}
-            onAddFolder={handleAddFolder}
-            onUpdateFolder={handleUpdateFolder}
-            onDeleteFolder={handleDeleteFolder}
-            onMoveToFolder={handleMoveToFolder}
-            onDragStart={(e, a) => setDraggedAsset(a)} 
-            onSelectAsset={setActiveAsset}
-            onDeleteAsset={handleDeleteAsset}
-            onUpdateAsset={handleUpdateAsset}
-          />
-          <div 
-            onMouseDown={() => setIsResizing('sidebar')}
-            className="w-1 hover:bg-blue-500 cursor-col-resize transition-colors group flex items-center justify-center relative z-20"
-          >
-            <div className="absolute inset-y-0 -left-1 -right-1"></div>
+        {showSidebar && (
+          <div style={{ width: `${sidebarWidth}px` }} className="flex-shrink-0 flex">
+            <Sidebar 
+              activeTool={activeTool} 
+              onToolChange={setActiveTool} 
+              assets={assets} 
+              folders={folders}
+              onAddFolder={handleAddFolder}
+              onUpdateFolder={handleUpdateFolder}
+              onDeleteFolder={handleDeleteFolder}
+              onMoveToFolder={handleMoveToFolder}
+              onDragStart={(e, a) => setDraggedAsset(a)} 
+              onSelectAsset={setActiveAsset}
+              onDeleteAsset={handleDeleteAsset}
+              onUpdateAsset={handleUpdateAsset}
+            />
+            <div 
+              onMouseDown={() => setIsResizing('sidebar')}
+              className="w-1 hover:bg-blue-500 cursor-col-resize transition-colors group flex items-center justify-center relative z-20"
+            >
+              <div className="absolute inset-y-0 -left-1 -right-1"></div>
+            </div>
           </div>
-        </div>
+        )}
 
         <div className="flex-1 flex flex-col relative z-0 min-w-0">
           <div className="absolute top-4 left-4 z-10 flex flex-wrap gap-2">
@@ -413,40 +460,44 @@ const App: React.FC = () => {
           </div>
         </div>
 
-        <div style={{ width: `${controlPanelWidth}px` }} className="flex-shrink-0 flex">
-          <div 
-            onMouseDown={() => setIsResizing('control')}
-            className="w-1 hover:bg-purple-500 cursor-col-resize transition-colors flex items-center justify-center relative z-20"
-          >
-            <div className="absolute inset-y-0 -left-1 -right-1"></div>
+        {showControlPanel && (
+          <div style={{ width: `${controlPanelWidth}px` }} className="flex-shrink-0 flex">
+            <div 
+              onMouseDown={() => setIsResizing('control')}
+              className="w-1 hover:bg-purple-500 cursor-col-resize transition-colors flex items-center justify-center relative z-20"
+            >
+              <div className="absolute inset-y-0 -left-1 -right-1"></div>
+            </div>
+            {activeTool === 'team' ? (
+              <CollaborationPanel collaborators={collaborators} comments={comments} onInvite={() => {}} onAddComment={(t) => setComments(p => [...p, { id: 'c'+Date.now(), userId: 'u1', text: t, timestamp: Date.now() }])} />
+            ) : (
+              <ControlPanel 
+                activeMediaType={activeMediaType} 
+                activeAsset={activeAsset}
+                folders={folders}
+                onMediaTypeChange={setActiveMediaType} 
+                onGenerate={handleGenerate} 
+                onUpdateAsset={handleUpdateAsset}
+                onDeleteAsset={handleDeleteAsset}
+                isGenerating={isGenerating} 
+                generationProgress={generationProgress} 
+              />
+            )}
           </div>
-          {activeTool === 'team' ? (
-            <CollaborationPanel collaborators={collaborators} comments={comments} onInvite={() => {}} onAddComment={(t) => setComments(p => [...p, { id: 'c'+Date.now(), userId: 'u1', text: t, timestamp: Date.now() }])} />
-          ) : (
-            <ControlPanel 
-              activeMediaType={activeMediaType} 
-              activeAsset={activeAsset}
-              folders={folders}
-              onMediaTypeChange={setActiveMediaType} 
-              onGenerate={handleGenerate} 
-              onUpdateAsset={handleUpdateAsset}
-              onDeleteAsset={handleDeleteAsset}
-              isGenerating={isGenerating} 
-              generationProgress={generationProgress} 
-            />
-          )}
-        </div>
+        )}
       </div>
 
-      <div style={{ height: `${timelineHeight}px` }} className="flex-shrink-0 flex flex-col">
-        <div 
-          onMouseDown={() => setIsResizing('timeline')}
-          className="h-1 hover:bg-blue-500 cursor-row-resize transition-colors relative z-30"
-        >
-          <div className="absolute inset-x-0 -top-1 -bottom-1"></div>
+      {showTimeline && (
+        <div style={{ height: `${timelineHeight}px` }} className="flex-shrink-0 flex flex-col">
+          <div 
+            onMouseDown={() => setIsResizing('timeline')}
+            className="h-1 hover:bg-blue-500 cursor-row-resize transition-colors relative z-30"
+          >
+            <div className="absolute inset-x-0 -top-1 -bottom-1"></div>
+          </div>
+          <Timeline items={timelineItems} currentTime={0} duration={15} />
         </div>
-        <Timeline items={timelineItems} currentTime={0} duration={15} />
-      </div>
+      )}
     </div>
   );
 };

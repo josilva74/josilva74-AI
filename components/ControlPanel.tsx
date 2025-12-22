@@ -1,7 +1,8 @@
+
 import React, { useState } from 'react';
-import { ASPECT_RATIOS, STYLE_PRESETS, VOICE_PRESETS, IMAGE_SIZES } from '../constants';
+import { ASPECT_RATIOS, STYLE_PRESETS, VOICE_PRESETS, IMAGE_SIZES, SAMPLER_OPTIONS } from '../constants';
 import { GenerationConfig, MediaType, Asset, Folder } from '../types';
-import { Wand2, Loader2, Mic, Film, Image as ImageIcon, MessageSquare, Brain, Search, MapPin, Clock, AlertCircle, Info, Tag, Calendar, Layout, Trash2 } from 'lucide-react';
+import { Wand2, Loader2, Mic, Film, Image as ImageIcon, MessageSquare, Brain, Search, MapPin, Clock, AlertCircle, Info, Tag, Calendar, Layout, Trash2, Monitor, Sliders, Settings2 } from 'lucide-react';
 import Tooltip from './Tooltip';
 
 interface ControlPanelProps {
@@ -32,11 +33,18 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
   const [negativePrompt, setNegativePrompt] = useState('');
   const [aspectRatio, setAspectRatio] = useState('16:9');
   const [imageSize, setImageSize] = useState('1K');
+  const [resolution, setResolution] = useState<'720p' | '1080p'>('720p');
   const [duration, setDuration] = useState(5);
   const [style, setStyle] = useState(STYLE_PRESETS[0].value);
   const [useThinking, setUseThinking] = useState(false);
   const [useSearch, setUseSearch] = useState(false);
   const [useMaps, setUseMaps] = useState(false);
+  
+  // Advanced Image Params
+  const [cfgScale, setCfgScale] = useState(7.0);
+  const [steps, setSteps] = useState(25);
+  const [sampler, setSampler] = useState(SAMPLER_OPTIONS[0].value);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   // Sync tab with active asset
   React.useEffect(() => {
@@ -49,14 +57,17 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
       prompt,
       negativePrompt,
       aspectRatio,
-      resolution: '1080p',
+      resolution,
       imageSize: imageSize as any,
       durationSeconds: duration,
       model: '', 
       stylePreset: style,
       useThinking,
       useSearch,
-      useMaps
+      useMaps,
+      cfgScale,
+      steps,
+      sampler
     });
   };
 
@@ -128,7 +139,72 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
                 />
               </div>
 
-              {activeMediaType !== MediaType.AUDIO && activeMediaType !== MediaType.CHAT && (
+              {/* Advanced Parameters Toggle */}
+              {activeMediaType === MediaType.IMAGE && (
+                <div className="mb-4">
+                  <button 
+                    onClick={() => setShowAdvanced(!showAdvanced)}
+                    className="flex items-center gap-2 text-[10px] font-bold text-blue-400 uppercase tracking-widest hover:text-blue-300 transition-colors"
+                  >
+                    <Sliders size={12} />
+                    {showAdvanced ? 'Hide Advanced Settings' : 'Show Advanced Settings'}
+                  </button>
+                  
+                  {showAdvanced && (
+                    <div className="mt-4 p-4 bg-slate-800/50 rounded-lg border border-slate-700 space-y-4 animate-in slide-in-from-top-2 duration-200">
+                      {/* CFG Scale */}
+                      <div>
+                        <div className="flex justify-between mb-1.5">
+                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-tight flex items-center gap-1">
+                            CFG Scale <Tooltip text="How strictly the AI follows your prompt. Higher = More accurate, Lower = More creative." position="right"><Info size={10}/></Tooltip>
+                          </label>
+                          <span className="text-[10px] font-mono text-blue-400">{cfgScale.toFixed(1)}</span>
+                        </div>
+                        {/* Fix: Use type casting (any) to access value property on event target to fix TS errors */}
+                        <input 
+                          type="range" min="1" max="30" step="0.5" 
+                          value={cfgScale} 
+                          onChange={(e) => setCfgScale(parseFloat((e.target as any).value))}
+                          className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                        />
+                      </div>
+
+                      {/* Steps */}
+                      <div>
+                        <div className="flex justify-between mb-1.5">
+                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-tight flex items-center gap-1">
+                            Steps <Tooltip text="Number of iterations. Higher = More detail but slower generation." position="right"><Info size={10}/></Tooltip>
+                          </label>
+                          <span className="text-[10px] font-mono text-blue-400">{steps}</span>
+                        </div>
+                        {/* Fix: Use type casting (any) to access value property on event target to fix TS errors */}
+                        <input 
+                          type="range" min="10" max="100" step="1" 
+                          value={steps} 
+                          onChange={(e) => setSteps(parseInt((e.target as any).value))}
+                          className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                        />
+                      </div>
+
+                      {/* Sampler */}
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5 tracking-tight">Sampler Method</label>
+                        {/* Fix: Use type casting (any) to access value property on event target to fix TS errors */}
+                        <select 
+                          value={sampler} 
+                          onChange={(e) => setSampler((e.target as any).value)} 
+                          className="w-full bg-slate-900 border border-slate-700 rounded-md p-2 text-[10px] text-slate-300 outline-none focus:border-blue-500"
+                        >
+                          {SAMPLER_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Negative Prompt - Show for Image and Video */}
+              {(activeMediaType === MediaType.IMAGE || activeMediaType === MediaType.VIDEO) && (
                 <div className="mb-4">
                   <div className="flex items-center gap-1 mb-1.5">
                     <AlertCircle size={10} className="text-slate-500"/>
@@ -137,14 +213,14 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
                   <textarea 
                     value={negativePrompt}
                     onChange={(e) => setNegativePrompt((e.target as any).value)}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-md p-2 text-xs text-slate-200 focus:outline-none"
-                    placeholder="Blurry, low quality, distorted..."
+                    className="w-full bg-slate-800 border border-slate-700 rounded-md p-2 text-xs text-slate-200 focus:outline-none focus:border-red-500/50"
+                    placeholder="Blurry, low quality, distorted, extra limbs..."
                   />
                 </div>
               )}
 
               {/* Dynamic Controls */}
-              {activeMediaType === MediaType.IMAGE && (
+              {(activeMediaType === MediaType.IMAGE || activeMediaType === MediaType.VIDEO) && (
                 <div className="grid grid-cols-2 gap-3 mb-4">
                   <div>
                     <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5 tracking-tight">Aspect Ratio</label>
@@ -157,14 +233,27 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
                     </select>
                   </div>
                   <div>
-                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5 tracking-tight">Image Size</label>
-                    <select 
-                      value={imageSize} 
-                      onChange={(e) => setImageSize((e.target as any).value)} 
-                      className="w-full bg-slate-800 border border-slate-700 rounded-md p-2 text-xs text-slate-200"
-                    >
-                      {IMAGE_SIZES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-                    </select>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5 tracking-tight">
+                      {activeMediaType === MediaType.IMAGE ? 'Quality (Size)' : 'Resolution'}
+                    </label>
+                    {activeMediaType === MediaType.IMAGE ? (
+                      <select 
+                        value={imageSize} 
+                        onChange={(e) => setImageSize((e.target as any).value)} 
+                        className="w-full bg-slate-800 border border-slate-700 rounded-md p-2 text-xs text-slate-200"
+                      >
+                        {IMAGE_SIZES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                      </select>
+                    ) : (
+                      <select 
+                        value={resolution} 
+                        onChange={(e) => setResolution((e.target as any).value as any)} 
+                        className="w-full bg-slate-800 border border-slate-700 rounded-md p-2 text-xs text-slate-200"
+                      >
+                        <option value="720p">720p (HD)</option>
+                        <option value="1080p">1080p (FHD)</option>
+                      </select>
+                    )}
                   </div>
                 </div>
               )}
@@ -172,7 +261,9 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
               {activeMediaType === MediaType.VIDEO && (
                 <div className="mb-6">
                   <div className="flex items-center justify-between mb-2">
-                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-tight">Duration</label>
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-tight flex items-center gap-1">
+                      <Clock size={12}/> Duration
+                    </label>
                     <span className="text-[10px] font-mono text-blue-400">{duration}s</span>
                   </div>
                   <input 
@@ -181,6 +272,10 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
                     onChange={(e) => setDuration(parseInt((e.target as any).value))}
                     className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
                   />
+                  <div className="flex justify-between mt-1">
+                    <span className="text-[8px] text-slate-600">3s</span>
+                    <span className="text-[8px] text-slate-600">15s</span>
+                  </div>
                 </div>
               )}
 
@@ -189,7 +284,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
                   <Tooltip text="Increases reasoning quality by reserving tokens for thought chains." position="right">
                     <label className="flex items-center gap-2 cursor-pointer group">
                       <input type="checkbox" checked={useThinking} onChange={e => setUseThinking((e.target as any).checked)} className="rounded border-slate-700 bg-slate-800 text-blue-500 focus:ring-0" />
-                      <div className="flex items-center gap-2 text-[11px] text-slate-400 group-hover:text-blue-400 transition-colors">
+                      <div className="flex items-center gap-2 text-slate-400 group-hover:text-blue-400 transition-colors">
                         <Brain size={14} /> Thinking Mode
                       </div>
                     </label>
@@ -198,7 +293,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
                   <Tooltip text="Ground responses in real-time web results." position="right">
                     <label className="flex items-center gap-2 cursor-pointer group">
                       <input type="checkbox" checked={useSearch} onChange={e => setUseSearch((e.target as any).checked)} className="rounded border-slate-700 bg-slate-800 text-blue-500 focus:ring-0" />
-                      <div className="flex items-center gap-2 text-[11px] text-slate-400 group-hover:text-blue-400 transition-colors">
+                      <div className="flex items-center gap-2 text-slate-400 group-hover:text-blue-400 transition-colors">
                         <Search size={14} /> Search Grounding
                       </div>
                     </label>
@@ -207,7 +302,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
                   <Tooltip text="Access geographic and location-based intelligence." position="right">
                     <label className="flex items-center gap-2 cursor-pointer group">
                       <input type="checkbox" checked={useMaps} onChange={e => setUseMaps((e.target as any).checked)} className="rounded border-slate-700 bg-slate-800 text-blue-500 focus:ring-0" />
-                      <div className="flex items-center gap-2 text-[11px] text-slate-400 group-hover:text-blue-400 transition-colors">
+                      <div className="flex items-center gap-2 text-slate-400 group-hover:text-blue-400 transition-colors">
                         <MapPin size={14} /> Maps Grounding
                       </div>
                     </label>
